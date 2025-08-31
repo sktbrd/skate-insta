@@ -1,0 +1,13 @@
+# general
+__pycache__/
+*.pyc
+.env
+.env.*
+.venv/
+venv/
+.idea/
+.vscode/
+*.log
+
+# docker
+data/
