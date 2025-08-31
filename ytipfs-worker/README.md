@@ -3,11 +3,13 @@
 Dockerized FastAPI service that downloads a video via yt-dlp and uploads it to Pinata using a JWT, returning the CID.
 
 ## Requirements
+
 - Docker / Docker Compose
 - Pinata account + **JWT** (Settings → API Keys → Create JWT)
 - Optional: Tailscale on the host for private access
 
 ## Setup
+
 1. `cp .env.example .env` and fill `PINATA_JWT`
 2. `docker compose up -d --build`
 3. Hit `http://<host-or-tailnet-ip>:8000/health`
@@ -15,6 +17,7 @@ Dockerized FastAPI service that downloads a video via yt-dlp and uploads it to P
 ## Usage
 
 ### POST (recommended)
+
 ```bash
 curl -X POST "http://<ip>:8000/download" \
   -H 'content-type: application/json' \
@@ -51,12 +54,12 @@ curl "http://<ip>:8000/d/<slug>"
 
 ## Environment
 
-* `PINATA_JWT` *(required)*
-* `DOWNLOAD_DIR` default `/data`
-* `YTDL_FORMAT` default `bv*+ba/bestvideo+bestaudio/best`
-* `OUTPUT_TEMPLATE` default `%(title).80s-%(id)s.%(ext)s`
-* `MAX_FILE_MB` default `1500`
-* `KEEP_FILES` default `0` (delete file after pin)
+- `PINATA_JWT` _(required)_
+- `DOWNLOAD_DIR` default `/data`
+- `YTDL_FORMAT` default `bv*+ba/bestvideo+bestaudio/best`
+- `OUTPUT_TEMPLATE` default `%(title).80s-%(id)s.%(ext)s`
+- `MAX_FILE_MB` default `1500`
+- `KEEP_FILES` default `0` (delete file after pin)
 
 ## Tailscale (host)
 
@@ -68,7 +71,7 @@ tailscale ip -4    # use 100.x.x.x here
 
 ## Notes
 
-* ffmpeg is installed in the container; yt-dlp merges to mp4 when possible.
-* Large files are blocked by `MAX_FILE_MB`.
-* If a site needs cookies/login, extend yt-dlp options in code.
-* Set `KEEP_FILES=1` to retain downloads for debugging.
+- ffmpeg is installed in the container; yt-dlp merges to mp4 when possible.
+- Large files are blocked by `MAX_FILE_MB`.
+- If a site needs cookies/login, extend yt-dlp options in code.
+- Set `KEEP_FILES=1` to retain downloads for debugging.
