@@ -1,6 +1,3 @@
-curl -X POST "http://localhost:8000/download" \
- -H 'Content-Type: application/json' \
- -d '{"url":"https://www.instagram.com/p/DMNeLBSukhg/"}'# ytipfs-worker
 
 Dockerized FastAPI service that downloads a video via yt-dlp and uploads it to Pinata using a JWT, returning the CID.
 
