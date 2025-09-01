@@ -117,7 +117,48 @@ def _download_video(url: str) -> Path:
     }
 
     with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        try:
+            info = ydl.extract_info(url, download=True)
+        except Exception as e:
+            if "There is no video in this post" in str(e):
+                # Instagram image-only posts need special handling
+                # Try to extract info first to get image URLs
+                try:
+                    info = ydl.extract_info(url, download=False)
+                    if info and 'entries' in info and info['entries']:
+                        # This is a carousel, get first entry
+                        entry = info['entries'][0]
+                    elif info:
+                        entry = info
+                    else:
+                        raise HTTPException(status_code=400, detail="Could not extract Instagram content")
+                    
+                    # Try to download the image directly using the URL from info
+                    if 'url' in entry:
+                        import requests
+                        img_url = entry['url']
+                        response = requests.get(img_url, stream=True)
+                        response.raise_for_status()
+                        
+                        # Create filename
+                        post_id = entry.get('id', 'unknown')
+                        filename = f"{post_id}.jpg"
+                        out = DOWNLOAD_DIR / filename
+                        
+                        with open(out, 'wb') as f:
+                            for chunk in response.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        
+                        # Create fake info dict for consistency
+                        info = entry
+                    else:
+                        raise HTTPException(status_code=400, detail="Could not find image URL in Instagram post")
+                        
+                except Exception as inner_e:
+                    raise HTTPException(status_code=400, detail=f"Instagram download failed: {str(inner_e)}")
+            else:
+                raise HTTPException(status_code=400, detail=f"yt-dlp error: {str(e)}")
+        
         if info is None:
             raise HTTPException(status_code=400, detail="yt-dlp failed to extract info")
 
@@ -125,7 +166,9 @@ def _download_video(url: str) -> Path:
         if 'entries' in info and info['entries']:
             info = info['entries'][0]
 
-        out = Path(ydl.prepare_filename(info))
+        # If we downloaded via requests, 'out' is already set
+        if 'out' not in locals():
+            out = Path(ydl.prepare_filename(info))
     
     # Don't assume MP4 format - check what was actually downloaded
     if not out.exists():
