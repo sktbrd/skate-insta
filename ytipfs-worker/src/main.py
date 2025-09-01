@@ -105,84 +105,40 @@ def _download_video(url: str) -> Path:
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     ydl_opts = {
+        "format": YTDL_FORMAT,
         "outtmpl": str(DOWNLOAD_DIR / OUTPUT_TEMPLATE),
         "noplaylist": True,
+        "merge_output_format": "mp4",
+        "concurrent_fragment_downloads": 4,
+        "retries": 5,
+        "nopart": True,
         "restrictfilenames": True,
+        "ignoreerrors": False,
         "quiet": True,
         "no_warnings": True,
-        # Download whatever is available - images, videos, anything
-        "format": "best",
-        "writesubtitles": False,
-        "writeautomaticsub": False,
     }
 
     with YoutubeDL(ydl_opts) as ydl:
-        try:
-            info = ydl.extract_info(url, download=True)
-        except Exception as e:
-            if "There is no video in this post" in str(e):
-                # Instagram image-only posts need special handling
-                # Try to extract info first to get image URLs
-                try:
-                    info = ydl.extract_info(url, download=False)
-                    if info and 'entries' in info and info['entries']:
-                        # This is a carousel, get first entry
-                        entry = info['entries'][0]
-                    elif info:
-                        entry = info
-                    else:
-                        raise HTTPException(status_code=400, detail="Could not extract Instagram content")
-                    
-                    # Try to download the image directly using the URL from info
-                    if 'url' in entry:
-                        import requests
-                        img_url = entry['url']
-                        response = requests.get(img_url, stream=True)
-                        response.raise_for_status()
-                        
-                        # Create filename
-                        post_id = entry.get('id', 'unknown')
-                        filename = f"{post_id}.jpg"
-                        out = DOWNLOAD_DIR / filename
-                        
-                        with open(out, 'wb') as f:
-                            for chunk in response.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                        
-                        # Create fake info dict for consistency
-                        info = entry
-                    else:
-                        raise HTTPException(status_code=400, detail="Could not find image URL in Instagram post")
-                        
-                except Exception as inner_e:
-                    raise HTTPException(status_code=400, detail=f"Instagram download failed: {str(inner_e)}")
-            else:
-                raise HTTPException(status_code=400, detail=f"yt-dlp error: {str(e)}")
-        
+        info = ydl.extract_info(url, download=True)
         if info is None:
             raise HTTPException(status_code=400, detail="yt-dlp failed to extract info")
 
-        # Handle carousel posts - just take the first item for now
-        if 'entries' in info and info['entries']:
-            info = info['entries'][0]
+        out = Path(ydl.prepare_filename(info))
+        if out.suffix.lower() != ".mp4" and (out.with_suffix(".mp4").exists()):
+            out = out.with_suffix(".mp4")
 
-        # If we downloaded via requests, 'out' is already set
-        if 'out' not in locals():
-            out = Path(ydl.prepare_filename(info))
-    
-    # Don't assume MP4 format - check what was actually downloaded
-    if not out.exists():
-        # try to locate by id if prepare_filename changed
-        vid = info.get("id", "")
-        candidates = sorted(
-            DOWNLOAD_DIR.glob(f"*{vid}*"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        if candidates:
-            out = candidates[0]
-        else:
-            raise HTTPException(status_code=500, detail="Downloaded file not found")
+        if not out.exists():
+            # try to locate by id if prepare_filename changed
+            vid = info.get("id", "")
+            candidates = sorted(
+                DOWNLOAD_DIR.glob(f"*{vid}*"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            if candidates:
+                out = candidates[0]
+            else:
+                raise HTTPException(status_code=500, detail="Downloaded file not found")
 
         size_mb = out.stat().st_size / (1024 * 1024)
         if size_mb > MAX_FILE_MB:
