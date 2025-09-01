@@ -105,10 +105,9 @@ def _download_video(url: str) -> Path:
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     ydl_opts = {
-        "format": YTDL_FORMAT,
+        "format": "best",  # Changed to handle both images and videos
         "outtmpl": str(DOWNLOAD_DIR / OUTPUT_TEMPLATE),
         "noplaylist": True,
-        "merge_output_format": "mp4",
         "concurrent_fragment_downloads": 4,
         "retries": 5,
         "nopart": True,
@@ -124,9 +123,8 @@ def _download_video(url: str) -> Path:
             raise HTTPException(status_code=400, detail="yt-dlp failed to extract info")
 
         out = Path(ydl.prepare_filename(info))
-        if out.suffix.lower() != ".mp4" and (out.with_suffix(".mp4").exists()):
-            out = out.with_suffix(".mp4")
-
+        
+        # Don't assume MP4 format - check what was actually downloaded
         if not out.exists():
             # try to locate by id if prepare_filename changed
             vid = info.get("id", "")
