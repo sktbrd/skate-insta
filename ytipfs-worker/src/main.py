@@ -165,6 +165,10 @@ def _download_video(url: str) -> Path:
 def health():
     return {"status": "ok"}
 
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok"}
+
 
 @app.post("/download")
 def download_post(req: DownloadRequest):
@@ -178,7 +182,7 @@ def download_post(req: DownloadRequest):
             "status": "ok",
             "cid": cid,
             "ipfs_uri": f"ipfs://{cid}",
-            "pinata_gateway": f"https://gateway.pinata.cloud/ipfs/{cid}",
+            "pinata_gateway": f"https://ipfs.skatehive.app/ipfs/{cid}",
             "filename": file_path.name,
             "bytes": file_path.stat().st_size,
             "source_url": str(req.url),

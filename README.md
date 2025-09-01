@@ -1,4 +1,3 @@
-
 Dockerized FastAPI service that downloads a video via yt-dlp and uploads it to Pinata using a JWT, returning the CID.
 
 ## Requirements
@@ -44,7 +43,7 @@ curl "http://<ip>:8000/d/<slug>"
   "status": "ok",
   "cid": "bafy...",
   "ipfs_uri": "ipfs://bafy...",
-  "pinata_gateway": "https://gateway.pinata.cloud/ipfs/bafy...",
+  "pinata_gateway": "https://ipfs.skatehive.app/ipfs/bafy...",
   "filename": "Rick_Astley-...mp4",
   "bytes": 14839234,
   "source_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
