@@ -105,68 +105,41 @@ def _download_video(url: str) -> Path:
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     ydl_opts = {
-        "format": "best",
         "outtmpl": str(DOWNLOAD_DIR / OUTPUT_TEMPLATE),
         "noplaylist": True,
-        "concurrent_fragment_downloads": 4,
-        "retries": 5,
-        "nopart": True,
         "restrictfilenames": True,
-        "ignoreerrors": False,
         "quiet": True,
         "no_warnings": True,
-        # Instagram specific options
+        # Download whatever is available - images, videos, anything
+        "format": "best",
         "writesubtitles": False,
         "writeautomaticsub": False,
-        "extract_flat": False,
     }
 
     with YoutubeDL(ydl_opts) as ydl:
-        # First extract info to check content type
-        try:
-            info = ydl.extract_info(url, download=False)
-            if info is None:
-                raise HTTPException(status_code=400, detail="yt-dlp failed to extract info")
-            
-            # For Instagram images, we need to handle differently
-            if 'entries' in info:  # Playlist/multiple items
-                # Handle carousel posts - download first item for now
-                info = info['entries'][0] if info['entries'] else info
-            
-            # Now download based on the extracted info
-            info = ydl.extract_info(url, download=True)
-            
-        except Exception as e:
-            if "There is no video in this post" in str(e):
-                # This is likely an image-only post, try different approach
-                ydl_opts_img = ydl_opts.copy()
-                ydl_opts_img.update({
-                    "format": "best[ext=jpg]/best[ext=jpeg]/best",
-                    "writesubtitles": False,
-                })
-                with YoutubeDL(ydl_opts_img) as ydl_img:
-                    info = ydl_img.extract_info(url, download=True)
-            else:
-                raise HTTPException(status_code=400, detail=f"yt-dlp error: {str(e)}")
-        
+        info = ydl.extract_info(url, download=True)
         if info is None:
             raise HTTPException(status_code=400, detail="yt-dlp failed to extract info")
 
+        # Handle carousel posts - just take the first item for now
+        if 'entries' in info and info['entries']:
+            info = info['entries'][0]
+
         out = Path(ydl.prepare_filename(info))
-        
-        # Don't assume MP4 format - check what was actually downloaded
-        if not out.exists():
-            # try to locate by id if prepare_filename changed
-            vid = info.get("id", "")
-            candidates = sorted(
-                DOWNLOAD_DIR.glob(f"*{vid}*"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            )
-            if candidates:
-                out = candidates[0]
-            else:
-                raise HTTPException(status_code=500, detail="Downloaded file not found")
+    
+    # Don't assume MP4 format - check what was actually downloaded
+    if not out.exists():
+        # try to locate by id if prepare_filename changed
+        vid = info.get("id", "")
+        candidates = sorted(
+            DOWNLOAD_DIR.glob(f"*{vid}*"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if candidates:
+            out = candidates[0]
+        else:
+            raise HTTPException(status_code=500, detail="Downloaded file not found")
 
         size_mb = out.stat().st_size / (1024 * 1024)
         if size_mb > MAX_FILE_MB:
