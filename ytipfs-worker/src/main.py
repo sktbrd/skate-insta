@@ -105,7 +105,7 @@ def _download_video(url: str) -> Path:
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
     ydl_opts = {
-        "format": "best",  # Changed to handle both images and videos
+        "format": "best",
         "outtmpl": str(DOWNLOAD_DIR / OUTPUT_TEMPLATE),
         "noplaylist": True,
         "concurrent_fragment_downloads": 4,
@@ -115,10 +115,40 @@ def _download_video(url: str) -> Path:
         "ignoreerrors": False,
         "quiet": True,
         "no_warnings": True,
+        # Instagram specific options
+        "writesubtitles": False,
+        "writeautomaticsub": False,
+        "extract_flat": False,
     }
 
     with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        # First extract info to check content type
+        try:
+            info = ydl.extract_info(url, download=False)
+            if info is None:
+                raise HTTPException(status_code=400, detail="yt-dlp failed to extract info")
+            
+            # For Instagram images, we need to handle differently
+            if 'entries' in info:  # Playlist/multiple items
+                # Handle carousel posts - download first item for now
+                info = info['entries'][0] if info['entries'] else info
+            
+            # Now download based on the extracted info
+            info = ydl.extract_info(url, download=True)
+            
+        except Exception as e:
+            if "There is no video in this post" in str(e):
+                # This is likely an image-only post, try different approach
+                ydl_opts_img = ydl_opts.copy()
+                ydl_opts_img.update({
+                    "format": "best[ext=jpg]/best[ext=jpeg]/best",
+                    "writesubtitles": False,
+                })
+                with YoutubeDL(ydl_opts_img) as ydl_img:
+                    info = ydl_img.extract_info(url, download=True)
+            else:
+                raise HTTPException(status_code=400, detail=f"yt-dlp error: {str(e)}")
+        
         if info is None:
             raise HTTPException(status_code=400, detail="yt-dlp failed to extract info")
 
