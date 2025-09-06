@@ -1,0 +1,6 @@
+# Sensitive files - DO NOT COMMIT
+ytipfs-worker/data/instagram_cookies.txt
+**/instagram_cookies.txt
+**/*cookies*.txt
+.env
+**/.env
