@@ -6,15 +6,20 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
+import uuid
 
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, AnyUrl
 from yt_dlp import YoutubeDL
 import subprocess
 import mimetypes
 
 app = FastAPI(title="ytipfs-worker", version="2.0.0")
+
+# FOR TESTING: Use this URL to test Instagram downloads
+# TEST_URL = "https://www.instagram.com/p/DOCCkdVj0Iy/"
+# Update this URL as needed for testing purposes
 
 PINATA_JWT = os.getenv("PINATA_JWT", "").strip()
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/data"))
@@ -33,6 +38,40 @@ COOKIE_VALIDATION_INTERVAL = int(os.getenv("COOKIE_VALIDATION_INTERVAL", "3600")
 COOKIE_AUTO_REFRESH = os.getenv("COOKIE_AUTO_REFRESH", "true").lower() == "true"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+# Download logging setup
+def setup_download_logging():
+    """Set up logging for Instagram downloads"""
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    # Configure file handler for download logs
+    download_log_path = log_dir / "instagram_download.log"
+    
+    # Create a separate logger for download tracking
+    download_logger = logging.getLogger('instagram_downloads')
+    download_logger.setLevel(logging.INFO)
+    
+    # Clear existing handlers
+    download_logger.handlers.clear()
+    
+    # Create file handler with JSON formatting
+    file_handler = logging.FileHandler(download_log_path)
+    file_handler.setLevel(logging.INFO)
+    
+    # Don't add formatter - we'll write JSON directly
+    download_logger.addHandler(file_handler)
+    download_logger.propagate = False
+    
+    return download_logger
+
+# Initialize download logger
+download_logger = setup_download_logging()
+
+def log_download_event(event_data: dict):
+    """Log download events in JSON format"""
+    event_data["timestamp"] = datetime.utcnow().isoformat() + "Z"
+    download_logger.info(json.dumps(event_data))
 
 
 class DownloadRequest(BaseModel):
@@ -314,6 +353,45 @@ def _download_video(url: str) -> Path:
             )
 
 
+@app.get("/logs")
+def get_download_logs(limit: int = 50):
+    """Get recent download logs"""
+    try:
+        log_path = Path("logs/instagram_download.log")
+        if not log_path.exists():
+            return {"logs": [], "total": 0, "success_count": 0, "failure_count": 0}
+        
+        with open(log_path, 'r') as f:
+            lines = f.readlines()
+        
+        # Get last 'limit' lines and parse JSON
+        recent_lines = lines[-limit:] if len(lines) > limit else lines
+        logs = []
+        
+        for line in recent_lines:
+            try:
+                log_entry = json.loads(line.strip())
+                logs.append(log_entry)
+            except json.JSONDecodeError:
+                continue
+        
+        # Sort by timestamp, newest first
+        logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        success_count = len([l for l in logs if l.get('success', False)])
+        failure_count = len([l for l in logs if l.get('success') == False])
+        
+        return {
+            "logs": logs,
+            "total": len(logs),
+            "success_count": success_count,
+            "failure_count": failure_count
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "logs": [], "total": 0, "success_count": 0, "failure_count": 0}
+
+
 @app.get("/health")
 def health():
     """Enhanced health endpoint with cookie status"""
@@ -353,35 +431,87 @@ def validate_cookies():
 
 
 @app.post("/download")
-def download_post(req: DownloadRequest):
-    logging.info(f"Downloading: {req.url}")
-    file_path = _download_video(str(req.url))
-    logging.info(f"Final file for IPFS upload: {file_path}")
+def download_post(req: DownloadRequest, request: Request):
+    download_id = f"insta_{int(datetime.utcnow().timestamp() * 1000)}"
+    start_time = datetime.utcnow().timestamp() * 1000
+    client_ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
+    user_agent = request.headers.get("user-agent", "unknown")
+    
+    # Log download start
+    log_download_event({
+        "id": download_id,
+        "status": "started", 
+        "url": str(req.url),
+        "clientIP": client_ip,
+        "userAgent": user_agent,
+        "startTime": start_time
+    })
+    
+    logging.info(f"[{download_id}] Downloading: {req.url}")
+    
     try:
+        file_path = _download_video(str(req.url))
+        logging.info(f"[{download_id}] Final file for IPFS upload: {file_path}")
+        
         pin = _pin_to_pinata(file_path, name=file_path.name)
         cid = pin.get("IpfsHash")
+        file_size = file_path.stat().st_size
+        duration = int(datetime.utcnow().timestamp() * 1000 - start_time)
+        
+        # Log successful completion
+        log_download_event({
+            "id": download_id,
+            "status": "completed",
+            "url": str(req.url),
+            "filename": file_path.name,
+            "cid": cid,
+            "gatewayUrl": f"https://ipfs.skatehive.app/ipfs/{cid}",
+            "bytes": file_size,
+            "duration": duration,
+            "clientIP": client_ip,
+            "success": True
+        })
+        
         res = {
             "status": "ok",
             "cid": cid,
             "ipfs_uri": f"ipfs://{cid}",
             "pinata_gateway": f"https://ipfs.skatehive.app/ipfs/{cid}",
             "filename": file_path.name,
-            "bytes": file_path.stat().st_size,
+            "bytes": file_size,
             "source_url": str(req.url),
         }
         return res
+        
+    except Exception as e:
+        duration = int(datetime.utcnow().timestamp() * 1000 - start_time)
+        
+        # Log failure
+        log_download_event({
+            "id": download_id,
+            "status": "failed",
+            "url": str(req.url),
+            "error": str(e),
+            "duration": duration,
+            "clientIP": client_ip,
+            "success": False
+        })
+        
+        logging.error(f"[{download_id}] Download failed: {e}")
+        raise e
+        
     finally:
         if not KEEP_FILES:
             try:
                 file_path.unlink(missing_ok=True)
             except Exception:
-                logging.warning("Failed to remove temp file", exc_info=True)
+                logging.warning(f"[{download_id}] Failed to remove temp file", exc_info=True)
 
 
 @app.get("/d/{b64url}")
-def download_get(b64url: str):
+def download_get(b64url: str, request: Request):
     try:
         url = _b64url_decode(b64url)
     except Exception:
         raise HTTPException(status_code=400, detail="Malformed base64url slug")
-    return download_post(DownloadRequest(url=url))
+    return download_post(DownloadRequest(url=url), request)
