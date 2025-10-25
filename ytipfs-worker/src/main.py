@@ -25,7 +25,7 @@ PINATA_JWT = os.getenv("PINATA_JWT", "").strip()
 DOWNLOAD_DIR = Path(os.getenv("DOWNLOAD_DIR", "/data"))
 YTDL_FORMAT = os.getenv(
     "YTDL_FORMAT",
-    "bv*+ba/bestvideo+bestaudio/best",
+    "bv*[vcodec^=avc]+ba/bv*[vcodec^=h264]+ba/bv*+ba/bestvideo+bestaudio/best",
 )
 OUTPUT_TEMPLATE = os.getenv("OUTPUT_TEMPLATE", "%(title).80s-%(id)s.%(ext)s")
 MAX_FILE_MB = int(os.getenv("MAX_FILE_MB", "1500"))
@@ -237,36 +237,81 @@ def _pin_to_pinata(file_path: Path, name: Optional[str] = None) -> dict:
 
     return resp.json()
 
+def _needs_h264_conversion(file_path: Path) -> bool:
+    """Check if video needs conversion to H.264 for mobile compatibility"""
+    try:
+        cmd = [
+            "ffprobe", "-v", "quiet", "-print_format", "json", 
+            "-show_streams", "-select_streams", "v:0", str(file_path)
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        info = json.loads(result.stdout)
+        
+        for stream in info.get("streams", []):
+            codec_name = stream.get("codec_name", "").lower()
+            # Check for mobile-incompatible codecs
+            if codec_name in ["vp9", "vp8", "av1", "hevc"]:
+                logging.info(f"Found {codec_name} codec, conversion needed for mobile compatibility")
+                return True
+            elif codec_name in ["h264", "avc"]:
+                logging.info(f"Found {codec_name} codec, mobile compatible")
+                return False
+        
+        # If we can't determine, assume conversion needed
+        return True
+    except Exception as e:
+        logging.warning(f"Could not probe video codec: {e}, assuming conversion needed")
+        return True
+
+
 def _convert_media(file_path: Path, media_type: str) -> Path:
     """
-    Convert video to mp4 or image to jpg if needed. Returns new file path if converted, else original.
+    Convert video to H.264/AAC MP4 for mobile compatibility, or image to jpg if needed.
     """
     suffix = file_path.suffix.lower()
-    if media_type == MediaType.VIDEO and suffix != ".mp4":
-        out_path = file_path.with_suffix(".mp4")
-        cmd = [
-            "ffmpeg", "-y", "-i", str(file_path), "-c:v", "libx264", "-c:a", "aac", str(out_path)
-        ]
-        logging.info(f"Converting video to mp4: {' '.join(cmd)}")
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            file_path = out_path
-        except Exception as e:
-            logging.error(f"ffmpeg conversion failed: {e}")
-            raise HTTPException(status_code=500, detail="ffmpeg conversion failed")
+    
+    if media_type == MediaType.VIDEO:
+        # Always check codec, even if it's already MP4
+        needs_conversion = (suffix != ".mp4") or _needs_h264_conversion(file_path)
+        
+        if needs_conversion:
+            out_path = file_path.with_suffix(".mp4") if suffix != ".mp4" else file_path.parent / f"{file_path.stem}_h264.mp4"
+            cmd = [
+                "ffmpeg", "-y", "-i", str(file_path),
+                "-c:v", "libx264", "-crf", "23", "-preset", "medium",  # Better quality settings
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",  # Optimize for web streaming
+                "-pix_fmt", "yuv420p",  # Ensure mobile compatibility
+                str(out_path)
+            ]
+            logging.info(f"Converting video to mobile-compatible H.264: {' '.join(cmd)}")
+            try:
+                result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+                # Remove original if conversion successful and it's a different file
+                if out_path != file_path:
+                    file_path.unlink(missing_ok=True)
+                file_path = out_path
+            except subprocess.CalledProcessError as e:
+                logging.error(f"ffmpeg conversion failed: {e.stderr}")
+                raise HTTPException(status_code=500, detail=f"Video conversion failed: {e.stderr}")
+        else:
+            logging.info(f"Video already in mobile-compatible format: {file_path}")
+            
     elif media_type == MediaType.IMAGE and suffix not in [".jpg", ".jpeg"]:
         out_path = file_path.with_suffix(".jpg")
         cmd = [
-            "ffmpeg", "-y", "-i", str(file_path), str(out_path)
+            "ffmpeg", "-y", "-i", str(file_path), "-q:v", "2", str(out_path)
         ]
         logging.info(f"Converting image to jpg: {' '.join(cmd)}")
         try:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            file_path.unlink(missing_ok=True)  # Remove original
             file_path = out_path
-        except Exception as e:
-            logging.error(f"ffmpeg image conversion failed: {e}")
-            raise HTTPException(status_code=500, detail="ffmpeg image conversion failed")
-    logging.info(f"Converted file path: {file_path}")
+        except subprocess.CalledProcessError as e:
+            logging.error(f"ffmpeg image conversion failed: {e.stderr}")
+            raise HTTPException(status_code=500, detail=f"Image conversion failed: {e.stderr}")
+    
+    logging.info(f"Final file path: {file_path}")
     return file_path
 
 
