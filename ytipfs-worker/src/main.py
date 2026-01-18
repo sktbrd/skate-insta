@@ -10,6 +10,7 @@ import uuid
 
 import requests
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, AnyUrl
 from yt_dlp import YoutubeDL
 import subprocess
@@ -200,8 +201,31 @@ class CookieManager:
             "cookies_path": str(self.cookies_path),
         }
 
+
 # Initialize global cookie manager
 cookie_manager = CookieManager()
+
+
+def wants_html(request: Request) -> bool:
+    accept = request.headers.get("accept", "")
+    return "text/html" in accept.lower()
+
+
+def render_health_html(title: str, payload: Dict[str, Any]) -> HTMLResponse:
+    lines = [
+        "<!doctype html>",
+        "<html>",
+        f"  <head><meta charset="utf-8"><title>{title}</title></head>",
+        "  <body>",
+        f"    <h1>{title}</h1>",
+    ]
+
+    for key, value in payload.items():
+        lines.append(f"    <p>{key}: {value}</p>")
+
+    lines.extend(["  </body>", "</html>"])
+    return HTMLResponse("
+".join(lines))
 
 
 def _b64url_decode(s: str) -> str:
@@ -438,20 +462,42 @@ def get_download_logs(limit: int = 50):
 
 
 @app.get("/health")
-def health():
+def health(request: Request):
     """Enhanced health endpoint with cookie status"""
-    cookie_status = cookie_manager.get_status()
-    return {
+    try:
+        cookie_status = cookie_manager.get_status()
+    except Exception as exc:
+        cookie_status = {"error": str(exc)}
+
+    payload = {
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "authentication": cookie_status,
         "version": "2.0.0"
     }
 
+    if wants_html(request):
+        return render_health_html("Instagram Downloader Health", payload)
+
+    return payload
+
 @app.get("/healthz")
-def healthz():
+def healthz(request: Request):
     """Simple health check for backward compatibility"""
-    return {"status": "ok"}
+    payload = {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+    if wants_html(request):
+        return render_health_html("Instagram Downloader Healthz", payload)
+
+    return payload
+
+@app.get("/instagram/health")
+def instagram_health(request: Request):
+    return health(request)
+
+@app.get("/instagram/healthz")
+def instagram_healthz(request: Request):
+    return healthz(request)
 
 @app.get("/cookies/status")
 def cookies_status():

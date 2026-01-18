@@ -181,7 +181,7 @@ Cookies must be in **Netscape format** and stored in `data/instagram_cookies.txt
 
 **Current Live Configuration:**
 
-- **External URL:** `https://minivlad.tail9656d3.ts.net/instagram/download`
+- **External URL:** `https://minivlad.tail83ea3e.ts.net/instagram/download`
 - **External Port:** `6666`
 - **Internal Port:** `8000`
 - **Container:** `ytipfs-worker`
