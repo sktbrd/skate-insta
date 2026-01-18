@@ -1,4 +1,4 @@
-curl -X POST "http://localhost:8000/download" \
+curl -X POST "http://localhost:6666/download" \
  -H 'Content-Type: application/json' \
  -d '{"url":"https://www.instagram.com/p/DMNeLBSukhg/"}'# ytipfs-worker
 
@@ -14,14 +14,14 @@ Dockerized FastAPI service that downloads a video via yt-dlp and uploads it to P
 
 1. `cp .env.example .env` and fill `PINATA_JWT`
 2. `docker compose up -d --build`
-3. Hit `http://<host-or-tailnet-ip>:8000/health`
+3. Hit `http://<host-or-tailnet-ip>:6666/healthz`
 
 ## Usage
 
 ### POST (recommended)
 
 ```bash
-curl -X POST "http://<ip>:8000/download" \
+curl -X POST "http://<ip>:6666/download" \
   -H 'content-type: application/json' \
   -d '{"url":"https://www.youtube.com/watch?v=dQw4w9WgXcQ"}'
 ```
@@ -37,7 +37,7 @@ print(base64.urlsafe_b64encode(u.encode()).decode().rstrip('='))
 PY
 
 # Call
-curl "http://<ip>:8000/d/<slug>"
+curl "http://<ip>:6666/d/<slug>"
 ```
 
 ### Response example

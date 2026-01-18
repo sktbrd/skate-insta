@@ -23,7 +23,7 @@ Dockerized FastAPI service that downloads videos from Instagram, YouTube, TikTok
 1. `cp .env.example .env` and fill `PINATA_JWT`
 2. Add Instagram cookies to `data/instagram_cookies.txt` (see Cookie Management)
 3. `docker compose up -d --build`
-4. Hit `http://<host-or-tailnet-ip>:6666/health` (external port)
+4. Hit `http://<host-or-tailnet-ip>:6666/healthz` (external port)
 
 **Note on Ports:**
 - **Internal Port:** `8000` (FastAPI app inside container)
@@ -58,21 +58,27 @@ PY
 curl "http://<ip>:6666/d/<slug>"
 ```
 
-### GET /health
+### GET /healthz
 
 Service health check with cookie status.
 
 ```bash
-curl "http://<ip>:6666/health"
+curl "http://<ip>:6666/healthz"
 ```
 
 **Response:**
 ```json
 {
-  "status": "healthy",
-  "cookie_status": "valid",
-  "cookie_expires": "2026-01-15",
-  "days_until_expiry": 405
+  "status": "ok",
+  "timestamp": "2025-12-05T10:35:00Z",
+  "authentication": {
+    "cookies_enabled": true,
+    "cookies_exist": true,
+    "cookies_valid": true,
+    "last_validation": "2025-12-05T10:00:00Z",
+    "cookies_path": "/data/instagram_cookies.txt"
+  },
+  "version": "2.0.0"
 }
 ```
 
@@ -142,7 +148,7 @@ Cookies must be in **Netscape format** and stored in `data/instagram_cookies.txt
 ### Cookie Refresh Procedure
 
 **When to Refresh:**
-- Cookie expiration warning from `/health` endpoint
+- Cookie expiration warning from `/healthz` endpoint
 - "Rate limit" or "Login required" errors
 - Service returns authentication errors
 - Every 6-12 months (Instagram cookie lifetime)
@@ -165,7 +171,7 @@ Cookies must be in **Netscape format** and stored in `data/instagram_cookies.txt
 
 4. **Verify:**
    ```bash
-   curl http://localhost:6666/health
+   curl http://localhost:6666/healthz
    curl -X POST http://localhost:6666/cookies/validate
    ```
 
@@ -220,7 +226,7 @@ tailscale ip -4    # use 100.x.x.x here
 **Cause:** Instagram cookies are expired or invalid
 
 **Solution:**
-1. Check cookie status: `curl http://localhost:6666/health`
+1. Check cookie status: `curl http://localhost:6666/healthz`
 2. Refresh cookies (see Cookie Management section)
 3. Restart service: `docker compose restart`
 4. Verify: `curl -X POST http://localhost:6666/cookies/validate`
@@ -231,7 +237,7 @@ tailscale ip -4    # use 100.x.x.x here
 
 **Solution:**
 1. Check service is running: `docker ps | grep ytipfs`
-2. Test locally: `curl http://localhost:6666/health`
+2. Test locally: `curl http://localhost:6666/healthz`
 3. Check Tailscale Funnel: `tailscale funnel status`
 4. Verify port mapping in docker-compose.yml (should be 6666:8000)
 

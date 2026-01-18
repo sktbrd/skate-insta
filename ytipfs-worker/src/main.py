@@ -461,20 +461,24 @@ def get_download_logs(limit: int = 50):
         return {"error": str(e), "logs": [], "total": 0, "success_count": 0, "failure_count": 0}
 
 
-@app.get("/health")
-def health(request: Request):
-    """Enhanced health endpoint with cookie status"""
+def build_health_payload() -> Dict[str, Any]:
     try:
         cookie_status = cookie_manager.get_status()
     except Exception as exc:
         cookie_status = {"error": str(exc)}
 
-    payload = {
+    return {
         "status": "ok",
         "timestamp": datetime.now().isoformat(),
         "authentication": cookie_status,
         "version": "2.0.0"
     }
+
+
+@app.get("/health")
+def health(request: Request):
+    """Backward-compatible health endpoint."""
+    payload = build_health_payload()
 
     if wants_html(request):
         return render_health_html("Instagram Downloader Health", payload)
@@ -483,8 +487,8 @@ def health(request: Request):
 
 @app.get("/healthz")
 def healthz(request: Request):
-    """Simple health check for backward compatibility"""
-    payload = {"status": "ok", "timestamp": datetime.now().isoformat()}
+    """Standard health endpoint (preferred)."""
+    payload = build_health_payload()
 
     if wants_html(request):
         return render_health_html("Instagram Downloader Healthz", payload)
@@ -493,7 +497,7 @@ def healthz(request: Request):
 
 @app.get("/instagram/health")
 def instagram_health(request: Request):
-    return health(request)
+    return healthz(request)
 
 @app.get("/instagram/healthz")
 def instagram_healthz(request: Request):
